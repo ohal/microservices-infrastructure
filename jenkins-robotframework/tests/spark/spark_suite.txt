@@ -1,0 +1,101 @@
+# Post-deployment verification of Mesos Cluster. Spark Verification
+#
+# Author: https://github.com/MasterSergius
+
+*** Settings ***
+
+Library    OperatingSystem
+Library    SSHLibrary    timeout=45s
+Library    String
+
+Test Teardown    Teardown Steps
+
+Force Tags    cli    spark
+
+*** Test Cases ***
+
+
+Verify Spark Deployment
+    [Documentation]    Post-deployment verification steps for spark
+    Verify Spark
+
+
+*** Keywords ***
+
+Verify Spark
+    @{followers}    Split String    ${MESOS_FOLLOWERS}
+    ${test_status}=    Set Variable    ${true}
+    :FOR    ${host}    IN    @{followers}
+    \    ${passed}=    Run Keyword And Return Status     Verify Mesos Follower    ${host}
+    \    ${test_status}=    Set Variable If    not ${passed}    ${false}    ${test_status}
+    \    Run Keyword If    not ${passed}    Log   [Spark] Failed verification of ${host}   Warn
+    Should be True    ${test_status}
+
+Verify Mesos Follower    [Arguments]    ${host}
+    Open Connection    ${host}
+    Login With Public Key    ${USERNAME}    ${KEYFILE}
+
+    ${passed}=    Run Keyword And Return Status    Init Hdfs
+    Run Keyword If    not ${passed}    Log   [Spark] Failed hdfs init    Warn
+    Should be True    ${passed}
+
+    ${passed}=    Run Keyword And Return Status    Verify Spark Shell
+    Run Keyword If    not ${passed}    Log   [Spark] Failed spark-shell verification    Warn
+    Should be True    ${passed}
+
+    ${passed}=    Run Keyword And Return Status    Verify Spark Example App
+    Run Keyword If    not ${passed}    Log   [Spark] Failed spark example app verification    Warn
+    Should be True    ${passed}
+
+Init Hdfs
+    ${output}=    Execute Command    hdfs dfs -ls /
+    @{expected_output}    Create List    drwxrwxrwx     hdfs    /tmp
+    Verify Output    ${output}   @{expected_output}
+    # All hosts from cluster use same hdfs, thus folder must be deleted before test
+    Execute Command    hdfs dfs -rm -r /tmp/test
+
+Verify Spark Shell
+    Write    spark-shell
+    Set Client Configuration    prompt=scala>
+    ${output}=    Read Until Prompt
+    @{expected_output}    Create List    scala
+    Verify Output    ${output}   @{expected_output}
+
+    Write    val data = 1 to 10000
+    ${output}=    Read Until Prompt
+
+    Write    val distData = sc.parallelize(data)
+    ${output}=    Read Until Prompt
+
+    Write    val filteredData = distData.filter(_< 10)
+    ${output}=    Read Until Prompt
+
+    Write    filteredData.collect()
+    ${output}=    Read Until Prompt
+    @{expected_output}    Create List    res0: array[int] = array(1, 2, 3, 4, 5, 6, 7, 8, 9)
+    Verify Output    ${output}   @{expected_output}
+
+    Write    filteredData.saveAsTextFile("hdfs:///tmp/test")
+    Write    exit
+    Set Client Configuration    prompt=$
+    ${output}=    Read Until Prompt
+
+    Write    hdfs dfs -cat /tmp/test/part-00000
+    ${output}=    Read Until Prompt
+    @{expected_output}    Create List    1    2    3    4    5    6    7    8    9
+    Verify Output    ${output}   @{expected_output}
+
+Verify Spark Example App
+    Write    run-example SparkPi
+    ${output}=    Read Until Prompt
+    @{expected_output}    Create List    pi is roughly    3.1
+    Verify Output    ${output}   @{expected_output}
+
+Verify Output   [Arguments]    ${output}   @{expected_output}
+    ${output}=    Convert To Lowercase    ${output}
+    :FOR    ${item}    IN    @{expected_output}
+    \    Should Contain    ${output}    ${item}
+
+Teardown Steps
+    Write    hdfs dfs -rm -r /tmp/test
+    Close All Connections

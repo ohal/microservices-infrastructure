@@ -1,0 +1,153 @@
+# DateTime: 2015/06/03
+# Author: andriy.omelianenko@gmail.com
+
+
+*** Settings ***
+
+Force Tags    cli    kafka
+Library    OperatingSystem
+Library    String
+Library    SSHLibrary    timeout=30
+
+Test Teardown    Close Connection
+
+*** Test Cases ***
+
+Verify Kafka Run Brokers on host 04
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Kafka
+    Open ssh connection    ${HOST4}
+    Create kafka brokers    ${KAFKA_BROKERS_AMOUNT}
+    Start kafka brokers    ${KAFKA_BROKERS_AMOUNT}
+    Check Kafka-mesos status
+
+Verify Kafka on host 04
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Kafka
+    Open ssh connection    ${HOST4}
+    Check Kafka-mesos status
+    ${topic}=    Create topic
+    Check that topic is created    ${topic}
+    Send messages    ${topic}
+    Receive messages    ${topic}
+
+Verify Kafka on host 05
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Kafka
+    Open ssh connection    ${HOST5}
+    Check Kafka-mesos status
+    ${topic}=    Create topic
+    Check that topic is created    ${topic}
+    Send messages    ${topic}
+    Receive messages    ${topic}
+
+Verify Kafka on host 06
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Kafka
+    Open ssh connection    ${HOST6}
+    Check Kafka-mesos status
+    ${topic}=    Create topic
+    Check that topic is created    ${topic}
+    Send messages    ${topic}
+    Receive messages    ${topic}
+
+Verify Kafka on host 07
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Kafka
+    Open ssh connection    ${HOST7}
+    Check Kafka-mesos status
+    ${topic}=    Create topic
+    Check that topic is created    ${topic}
+    Send messages    ${topic}
+    Receive messages    ${topic}
+
+Verify Kafka Brokers Remove on host 04
+    [Documentation]    US19631: [AUTOMATION] Develop post-deployment verification tests for Kafka
+    Open ssh connection    ${HOST4}
+    Remove kafka brokers    ${KAFKA_BROKERS_AMOUNT}
+
+*** Keywords ***
+
+Open ssh connection
+    [Documentation]    Opens connection and login to specific host
+    [Arguments]    ${host}
+    Open Connection    ${host}
+    Login With Public Key    ${USERNAME}    ${KEYFILE}
+
+Create kafka brokers
+    [Documentation]    Creates kafka brokers
+    [Arguments]    ${brokers}
+    SSHLibrary.Directory Should Exist    ${KAFKA_MESOS_DIRECTORY}
+    ${kafka_brokers_amount_minus_one}=    Evaluate    ${brokers}-1
+    ${stdout}=    Execute command    cd ${KAFKA_MESOS_DIRECTORY} && kafka-mesos.sh add ${KAFKA_BROKERS_STARTED}..${kafka_brokers_amount_minus_one} --heap 256 --mem 512
+    Should Contain    ${stdout}    Brokers added
+    Should Contain X Times    ${stdout}    active: false    ${kafka_brokers_amount_minus_one}
+    Should Contain X Times    ${stdout}    state: stopped    ${kafka_brokers_amount_minus_one}
+    Should Contain X Times    ${stdout}    resources: cpus:1.00, mem:512, heap:256, port:auto    ${kafka_brokers_amount_minus_one}
+    Should Contain X Times    ${stdout}    failover: delay:10s, max-delay:60s    ${kafka_brokers_amount_minus_one}
+Start kafka brokers
+    [Documentation]    Start all kafka brokers
+    [Arguments]    ${brokers}
+    SSHLibrary.Directory Should Exist    ${KAFKA_MESOS_DIRECTORY}
+    #${kafka_brokers_amount_minus_one}=    Evaluate    ${brokers}-1
+    :FOR    ${index}    IN RANGE    ${KAFKA_BROKERS_STARTED}    ${brokers}
+    \    ${stdout}=    Execute command    cd ${KAFKA_MESOS_DIRECTORY} && kafka-mesos.sh start ${index}
+    \    Should Contain    ${stdout}    Broker ${index} started
+    \    Log    Broker ${index} started
+
+Remove kafka brokers
+    [Documentation]    Remove all kafka brokers
+    [Arguments]    ${brokers}
+    SSHLibrary.Directory Should Exist    ${KAFKA_MESOS_DIRECTORY}
+    :FOR    ${index}    IN RANGE    ${KAFKA_BROKERS_STARTED}    ${brokers}
+    \    ${stdout}=    Execute command    cd ${KAFKA_MESOS_DIRECTORY} && kafka-mesos.sh stop ${index}
+    \    Should Contain    ${stdout}    Broker ${index} stopped
+    \    Log    Broker ${index} stopped
+    \    ${stdout}=    Execute command    cd ${KAFKA_MESOS_DIRECTORY} && kafka-mesos.sh remove ${index}
+    \    Should Contain    ${stdout}    Broker ${index} removed
+    \    Log    Broker ${index} removed
+
+Check Kafka-mesos status
+    [Documentation]    Checks that all brokers has state: running
+    SSHLibrary.Directory Should Exist    ${KAFKA_MESOS_DIRECTORY}
+    ${stdout}=    Execute command    cd ${KAFKA_MESOS_DIRECTORY} && kafka-mesos.sh status
+    ${expected_running_amount}    Evaluate    ${KAFKA_BROKERS_AMOUNT}*2
+    Should Contain X Times    ${stdout}    state: running    ${expected_running_amount}
+
+Create topic
+    [Documentation]    Creates new topic with randomly generated name
+    ${topic}=    Generate Random String    6
+    ${stdout}=    Execute Command    kafka-topics.sh --create --zookeeper zookeeper.service.consul:2181 --replication-factor 1 --partitions 1 --topic ${topic}
+    Should Contain    ${stdout}    Created topic "${topic}".
+    [Return]    ${topic}
+
+Check that topic is created
+    [Documentation]    Checks that topic was created
+    [Arguments]    ${topic}
+    ${stdout}=    Execute Command    kafka-topics.sh --list --zookeeper zookeeper.service.consul:2181
+    Should Contain    ${stdout}    ${topic}
+
+Get broker endpoint
+    [Documentation]    Reads broker's endpoint value.
+    ${endpoint}=    Execute Command    cd ${KAFKA_MESOS_DIRECTORY} && kafka-mesos.sh status | grep endpoint: | cut -d':' -f2,3 | tail -1
+    [Return]    ${endpoint}
+
+Send messages
+    [Documentation]    Sends two messages as producer
+    [Arguments]    ${topic}
+    ${endpoint1}=    Get broker endpoint
+    Write    kafka-console-producer.sh --broker-list ${endpoint1} --topic ${topic}
+    Read    delay=1sec
+    Write    message one
+    Write    message two
+    ${ctrl_d}    Evaluate    chr(int(4))
+    Write Bare    ${ctrl_d}
+    Set Client Configuration    prompt=$
+    Read Until Prompt
+
+Receive messages
+    [Documentation]    Reads messages as consumer
+    [Arguments]    ${topic}
+    Write    kafka-console-consumer.sh --zookeeper zookeeper.service.consul:2181 --topic ${topic} --from-beginning
+    ${stdout}=    Read Until    message two
+    Should Contain    ${stdout}    message one
+    Should Contain    ${stdout}    message two
+    ${ctrl_c}    Evaluate    chr(int(3))
+    Write Bare    ${ctrl_c}
+    ${stdout}=    Read Until Prompt
+    Should Contain    ${stdout}    Consumed 2 messages

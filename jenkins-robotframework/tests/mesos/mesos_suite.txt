@@ -1,0 +1,129 @@
+# Post-deployment verification of Mesos Cluster
+#
+# Author: https://github.com/MasterSergius
+
+
+*** Settings ***
+
+Library    Collections
+Library    OperatingSystem
+Library    RequestsLibrary
+Library    String
+
+
+*** Test Cases ***
+
+Verify Mesos Http Service
+    [Tags]    core    cli
+    [Documentation]     - Develop post-deployment verification tests
+    ...                 for Mesos Cluster
+    Verify Mesos    http
+
+Verify Mesos State Service
+    [Tags]    core    cli
+    [Documentation]     - Develop post-deployment verification tests
+    ...                 for Mesos Cluster
+    Verify Mesos    state
+
+# deprecated starting from mesos 0.22.0
+#Verify Mesos Statistics Service
+#    [Tags]    cli
+#    [Documentation]     - Develop post-deployment verification tests
+#    ...                 for Mesos Cluster
+#    Verify Mesos    stats
+
+Verify Consul Service
+    [Tags]    core    cli
+    [Documentation]     - Develop post-deployment verification tests
+    ...                 for Mesos Cluster
+    Verify Consul
+
+Verify Marathon Service
+    [Tags]    core    cli
+    [Documentation]     - Develop post-deployment verification tests
+    ...                 for Mesos Cluster
+    Verify Marathon
+
+
+*** Keywords ***
+
+Verify Mesos    [Arguments]    ${service}
+    @{mesos_leaders}    Split String    ${MESOS}
+    ${test_status}=    Set Variable    ${true}
+    :FOR    ${host}    IN    @{mesos_leaders}
+    \    ${passed}=    Run Keyword And Return Status     Verify Mesos Host    ${host}    ${service}
+    \    ${test_status}=    Set Variable If    not ${passed}    ${false}    ${test_status}
+    \    Run Keyword If    not ${passed}    Log   [Mesos] Failed verification of ${host}   Warn
+    Should be True    ${test_status}
+
+Verify Mesos Host    [Arguments]    ${host}    ${service}
+    Run Keyword If    '${service}' == 'http'    Verify Mesos Host Http    ${host}
+    Run Keyword If    '${service}' == 'state'    Verify Mesos Host State    ${host}
+    Run Keyword If    '${service}' == 'stats'    Verify Mesos Host Statistics    ${host}
+
+Verify Mesos Host Http    [Arguments]    ${host}
+    ${output}=    Run    curl --connect-timeout 5 -k https://${SERVICE_USER}:${SERVICE_PASS}@${host}:5050
+    @{expected_output}    Create List    html    title    body    mesos
+    Verify Output    ${output}   @{expected_output}
+
+Verify Mesos Host State    [Arguments]    ${host}
+    ${output}=    Run    curl --connect-timeout 5 -k https://${SERVICE_USER}:${SERVICE_PASS}@${host}:5050/state.json
+    @{expected_output}    Create List    activated_slaves    cluster    port
+    Verify Output    ${output}   @{expected_output}
+
+Verify Mesos Host Statistics    [Arguments]    ${host}
+    ${output}=    Run    curl --connect-timeout 5 -k https://${SERVICE_USER}:${SERVICE_PASS}@${host}:5050/stats.json
+    @{expected_output}    Create List    activated_slaves    master    task
+    Verify Output    ${output}   @{expected_output}
+
+Verify Consul
+    @{consul_servers}    Split String    ${CONSUL}
+    ${test_status}=    Set Variable    ${true}
+    :FOR    ${host}    IN    @{consul_servers}
+    \    ${passed}=    Run Keyword And Return Status     Verify Consul Server    ${host}
+    \    ${test_status}=    Set Variable If    not ${passed}    ${false}    ${test_status}
+    \    Run Keyword If    not ${passed}    Log   [Consul] Failed verification of ${host}   Warn
+    Should be True    ${test_status}
+
+Verify Consul Server    [Arguments]    ${host}
+    ${output}=    Run    curl -s -k https://${SERVICE_USER}:${SERVICE_PASS}@${host}:8500/v1/catalog/services
+    ${output}=    To Json    ${output}
+    @{consul_services}=    Get Dictionary Keys    ${output}
+    :FOR    ${service}    IN    @{consul_services}
+    \    ${service_url}=    Url Encode    ${service}
+    \    ${output}=    Run    curl --connect-timeout 5 -k https://${SERVICE_USER}:${SERVICE_PASS}@${host}:8500/v1/health/service/${service_url}
+    \    @{expected_output}    Create List    "service":"${service}"    "status":"passing"
+    \    Verify Output    ${output}   @{expected_output}
+
+Verify Marathon
+    @{marathon_servers}    Split String    ${MARATHON}
+    ${test_status}=    Set Variable    ${true}
+    :FOR    ${host}    IN    @{marathon_servers}
+    \    ${passed}=    Run Keyword And Return Status     Verify Marathon Server    ${host}
+    \    ${test_status}=    Set Variable If    not ${passed}    ${false}    ${test_status}
+    \    Run Keyword If    not ${passed}    Log   [Marathon] Failed verification of ${host}   Warn
+    Should be True    ${test_status}
+
+Verify Marathon Server    [Arguments]    ${host}
+    ${app_dict}=    To Json    ${MARATHON_APP}
+    ${app_id}=    Get From Dictionary    ${app_dict}    id
+    ${app_cmd}=    Get From Dictionary    ${app_dict}    cmd
+    ${output}=    Run    curl --connect-timeout 5 -X POST -H "Content-Type: application/json" -k https://${SERVICE_USER}:${SERVICE_PASS}@${host}:8080/v2/apps -d '${MARATHON_APP}'
+    @{expected_output}    Create List    "cmd":"${app_cmd}"
+    Verify Output    ${output}   @{expected_output}
+    ${output}=    Run    curl --connect-timeout 5 -X GET -k https://${SERVICE_USER}:${SERVICE_PASS}@${host}:8080/v2/apps${app_id}
+    @{expected_output}    Create List    "cmd":"${app_cmd}"
+    Verify Output    ${output}   @{expected_output}
+    ${output}=    Run    curl --connect-timeout 5 -X DELETE -k https://${SERVICE_USER}:${SERVICE_PASS}@${host}:8080/v2/apps${app_id}
+    @{expected_output}    Create List    version    deploymentid
+    Verify Output    ${output}   @{expected_output}
+
+Verify Output   [Arguments]    ${output}   @{expected_output}
+    ${output}=    Convert To Lowercase    ${output}
+    :FOR    ${item}    IN    @{expected_output}
+    \    ${item_lower}=    Convert To Lowercase    ${item}
+    \    Should Contain    ${output}    ${item_lower}
+
+Url Encode    [Arguments]    ${url}
+    ${url}=    Replace String Using Regexp    ${url}    \\s    %20
+    [Return]    ${url}

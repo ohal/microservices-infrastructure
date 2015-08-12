@@ -1,0 +1,60 @@
+# DateTime: 2015/06/03
+# Author: o.halenok@gmail.com
+
+
+*** Settings ***
+
+Force Tags    cli    collectd
+Library    Collections
+Library    String
+Library    SSHLibrary    timeout=15
+Resource    ${ROBOT_ROOT}/libs/robot/common/common.txt
+
+*** Test Cases ***
+
+Verify If Collectd Is Running Host 1
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Monitoring
+    Verify If Service Is Active    ${HOST1}    collectd
+    Verify Collectd Status On Host    ${HOST1}
+
+Verify If Collectd Is Running Host 2
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Monitoring
+    Verify If Service Is Active    ${HOST2}    collectd
+    Verify Collectd Status On Host    ${HOST2}
+
+Verify If Collectd Is Running Host 3
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Monitoring
+    Verify If Service Is Active    ${HOST3}    collectd
+    Verify Collectd Status On Host    ${HOST3}
+
+Verify If Collectd Is Running Host 4
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Monitoring
+    Verify If Service Is Active    ${HOST4}    collectd
+    Verify Collectd Status On Host    ${HOST4}
+
+Verify If Collectd Is Running Host 5
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for Monitoring
+    Verify If Service Is Active    ${HOST5}    collectd
+    Verify Collectd Status On Host    ${HOST5}
+
+*** Keywords ***
+
+Verify If Service Is Active    [Arguments]    ${hostname}    ${service}
+    Open Connection    ${hostname}
+    Login With Public Key    ${USERNAME}    ${KEYFILE}
+    Enable Ssh Logging    ${ROBOT_ROOT}/outputdir/ssh.log
+    ${stdout}=    Execute Command    systemctl status ${service}
+    Should Contain    ${stdout}    Active: active (running)
+    Close Ssh Connection
+
+Verify Collectd Status On Host    [Arguments]    ${hostname}
+    Open Connection    ${hostname}
+    Login With Public Key    ${USERNAME}    ${KEYFILE}
+    Enable Ssh Logging    ${ROBOT_ROOT}/outputdir/ssh.log
+    Set Client Configuration    prompt=]$
+    ${exit}=    Write    sudo collectd -T
+    ${stdout}=    Read Until Prompt
+    Should Not Contain    ${stdout}    *** Error in `collectd':
+    # below verification need update because of expected collectd status
+    #:FOR    ${key}    IN    nginx-marathon    nginx-mesos-leader    zookeeper    logstash    nginx-consul
+    #\    Should Contain    ${stdout}    ${key}

@@ -1,0 +1,15 @@
+# DateTime: 2015/05/08 15:37:37
+# Author: o.halenok@gmail.com
+
+
+*** Settings ***
+
+Library    SSHLibrary    timeout=5
+
+*** Keywords ***
+
+Close Ssh Connection
+    Write    \x0D
+    Write    exit
+    Write    \x0D
+    Close All Connections

@@ -1,0 +1,67 @@
+# DateTime: 2015/05/08 15:37:37
+# Author: o.halenok@gmail.com
+
+
+*** Settings ***
+
+Force Tags    cli
+Library    Collections
+Library    String
+Library    SSHLibrary    timeout=5
+Resource    ${ROBOT_ROOT}/libs/robot/common/common.txt
+
+Suite Teardown    Close Ssh Connection
+
+*** Test Cases ***
+
+Verify Hdfs In Mesos Host 1
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for for HDFS
+    ...    HOST1
+    ${hostname}=    Get Mesos Host    0
+    Upload File To Hdfs    ${hostname}
+    Remove File From Hdfs    ${hostname}
+
+Verify Hdfs In Mesos Host 2
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for for HDFS
+    ...    HOST2
+    ${hostname}=    Get Mesos Host    1
+    Upload File To Hdfs    ${hostname}
+    Remove File From Hdfs    ${hostname}
+
+Verify Hdfs In Mesos Host 3
+    [Documentation]    [AUTOMATION] Develop post-deployment verification tests for for HDFS
+    ...    HOST3
+    ${hostname}=    Get Mesos Host    2
+    Upload File To Hdfs    ${hostname}
+    Remove File From Hdfs    ${hostname}
+
+*** Keywords ***
+
+Upload File To Hdfs    [Arguments]    ${hostname}
+    Open Connection    ${hostname}
+    Login With Public Key    ${USERNAME}    ${KEYFILE}
+    Enable Ssh Logging    ${ROBOT_ROOT}/outputdir/ssh.log
+    ${stdout}=    Execute Command    hdfs dfs -ls /
+    ${stdout}=    Execute Command    dd if=/dev/zero of=file.txt count=1024 bs=1024
+    ${stdout}=    Execute Command    hdfs dfs -put file.txt
+    ${stdout}=    Execute Command    hdfs dfs -ls
+    ${exit}=    Run Keyword And Return Status    Should Contain    ${stdout}    file.txt
+    Run Keyword Unless    ${exit}    Log   Failed upload file into HDFS: ${hostname}   Warn
+    Should be True    ${exit}
+    [Return]    ${exit}
+
+Remove File From Hdfs    [Arguments]    ${hostname}
+    Open Connection    ${hostname}
+    Login With Public Key    ${USERNAME}    ${KEYFILE}
+    Enable Ssh Logging    ${ROBOT_ROOT}/outputdir/ssh.log
+    ${stdout}=    Execute Command    hdfs dfs -rm file.txt
+    ${stdout}=    Execute Command    hdfs dfs -ls
+    ${exit}=    Run Keyword And Return Status    Should Not Contain    ${stdout}    file.txt
+    Run Keyword Unless    ${exit}    Log   Failed remove file from HDFS: ${hostname}   Warn
+    Should be True    ${exit}
+    [Return]    ${exit}
+
+Get Mesos Host    [Arguments]    ${member}
+    ${pool}=    Split String    ${HDFS}
+    ${hostname}=    Get From List    ${pool}    ${member}
+    [Return]    ${hostname}

@@ -1,0 +1,29 @@
+# DateTime: 2015/06/03
+# Author: o.halenok@gmail.com
+
+
+*** Settings ***
+
+Force Tags    cli
+Library    SSHLibrary    timeout=5
+Resource    ${ROBOT_ROOT}/libs/robot/common/common.txt
+
+*** Test Cases ***
+
+Check If Consul Is Up
+    Check If Service Is Active    ${HOST1}    consul
+    Check If Service Is Active    ${HOST2}    consul
+    Check If Service Is Active    ${HOST3}    consul
+    Check If Service Is Active    ${HOST4}    consul
+    Check If Service Is Active    ${HOST5}    consul
+
+*** Keywords ***
+
+Check If Service Is Active    [Arguments]    ${hostname}    ${service}
+    Open Connection    ${hostname}
+    Login With Public Key    ${USERNAME}    ${KEYFILE}
+    Enable Ssh Logging    ${ROBOT_ROOT}/outputdir/ssh.log
+    ${stdout}=    Execute Command    systemctl status ${service}
+    Should Contain    ${stdout}    Active: active (running)
+    Close Ssh Connection
+
